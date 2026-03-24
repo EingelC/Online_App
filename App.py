@@ -37,6 +37,13 @@ Sitio_Dict = {
     "Seul": ["SLC1", "SLC2"]
 }
 
+Issues_Dict = {
+    "RFM": ["Worklist issue", "Load issue", "DBW issue", "Vehicle disconnection", "No available connection"],
+    "Unknown": ["Network issue", "Local conditions", "Site emergency", "Manual operator", "Power cycle", "Other"],
+    "Vaux Drive": ["Audio issue", "Camera issue", "PTZ issue", "High Latency", "OP station issue", "Teleop command", "Reset not pressed"],
+    "Vehicle": ["Lidar issue", "Low battery", "Calibration issue", "Throttle loss", "Pallet issue", "Mislocated issue", "Protective stop"]
+}
+
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -55,6 +62,7 @@ class App(ctk.CTk):
         self.log_completo = "Esperando Actividad..."
         self.pilotos_widgets = {}
         self.botones_vehiculos = {}
+        self.botones_issues = {}
 
         #Seccion 1
         self.sidebar_frame = ctk.CTkFrame(self, width=100, corner_radius=0)
@@ -81,10 +89,10 @@ class App(ctk.CTk):
 
         #Seccion 2 A
         self.frame_palete = ctk.CTkFrame(self, width=200, fg_color="transparent")
-        self.frame_palete.grid(row=0, column=1, rowspan=5, sticky="nsew")
+        self.frame_palete.grid(row=0, column=1, rowspan=6, sticky="nsew")
         self.frame_palete.grid_columnconfigure(0, weight=1)
         self.frame_palete.grid_columnconfigure(1, weight=1)
-        self.frame_palete.grid_rowconfigure(2, weight=1)
+        #self.frame_palete.grid_rowconfigure(1, weight=1)
 
         self.pallet_label = ctk.CTkLabel(self.frame_palete, text="Palletes", font=ctk.CTkFont(size=16, weight="bold"))
         self.pallet_label.grid(row=0, column=0, columnspan=2, padx=(20), pady=(0, 5), sticky="ew")
@@ -94,19 +102,30 @@ class App(ctk.CTk):
         self.pallet_remove = ctk.CTkButton(self.frame_palete, text="Eliminar Pallete", command=lambda: self.actualizar_palletes(int(-1)))
         self.pallet_remove.grid(row=1, column=1, padx=(10, 20), pady=(10), sticky="nsew")
 
-        self.section_3_frame = ctk.CTkFrame(self, width=200, height=100, fg_color="transparent")
-        self.section_3_frame.grid(row=1, column=2, sticky="nsew")
-        self.section_3_frame.grid_rowconfigure(5, weight=1)
+        self.issue_label = ctk.CTkLabel(self.frame_palete, text="Issues", font=ctk.CTkFont(size=16, weight="bold"))
+        self.issue_label.grid(row=2, column=0, columnspan=2, padx=(20), pady=(0, 5), sticky="ew")
+
+        self.issue_segments = ctk.CTkSegmentedButton(self.frame_palete, values=list(Issues_Dict.keys()), command=self.mostrar_issues)
+        self.issue_segments.grid(row=3, column=0, columnspan=2, padx=20, pady=(5, 10), sticky="ew")
+
+        self.frame_issues = ctk.CTkFrame(self.frame_palete, width=200, height=100, fg_color="transparent")
+        self.frame_issues.grid(row=4, column=0, columnspan=2, sticky="nsew")
+
+        self.issue_label = ctk.CTkLabel(self.frame_palete, text="Vehicles", font=ctk.CTkFont(size=16, weight="bold"))
+        self.issue_label.grid(row=5, column=0, columnspan=2, padx=(20), pady=(0, 5), sticky="ew")
+
+        self.frame_vehiculos = ctk.CTkFrame(self.frame_palete, width=200, height=100, fg_color="transparent")
+        self.frame_vehiculos.grid(row=6, column=0, columnspan=2, sticky="nsew")
 
         #Seccion 2 B
-        self.frame_palete = ctk.CTkFrame(self, width=200, fg_color="transparent")
-        self.frame_palete.grid(row=0, column=2, rowspan=5, sticky="nsew")
-
-        self.log_label = ctk.CTkLabel(self.frame_palete, text=self.log_completo, font=ctk.CTkFont(size=10), justify="left")
-        self.log_label.grid(row=2, column=0, columnspan=2, padx=(20), pady=(10, 5), sticky="ew")
-
-        self.frame_vehiculos = ctk.CTkFrame(self, width=200, height=100, fg_color="transparent")
-        self.frame_vehiculos.grid(row=2, column=1, sticky="nsew")
+        self.frame_palete1 = ctk.CTkFrame(self, width=300, fg_color="transparent")
+        self.frame_palete1.grid(row=0, column=2, rowspan=5, sticky="nsew")
+        self.frame_palete1.grid_columnconfigure(0, weight=1)
+        self.frame_palete1.grid_propagate(False)
+        self.log_text = ctk.CTkTextbox(self.frame_palete1, width=200, font=ctk.CTkFont(size=11), activate_scrollbars=True, wrap="word")
+        self.log_text.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        self.log_text.insert("0.0", self.log_completo)
+        self.log_text.configure(state="disabled")
 
     def iniciar_listener(self):
         def callback(event):
@@ -114,6 +133,24 @@ class App(ctk.CTk):
             if self.winfo_exists() and usuarios:
                 self.after(0, lambda: self.mostrar_pilotos_activos(usuarios))
         db.reference('usuarios').listen(callback)
+
+    def mostrar_issues(self, seleccion):
+        for widget in self.frame_issues.winfo_children():
+            widget.destroy()
+        self.botones_issues = {}
+
+        issues = Issues_Dict.get(seleccion, [])
+
+        for n in range(4):
+            self.frame_issues.grid_columnconfigure(n, weight=1)
+
+        for i, nombre_issue in enumerate(issues):
+            fila = i // 4
+            columna = i % 4
+            btn = ctk.CTkButton(self.frame_issues, text=nombre_issue, fg_color="#4A4A4A", hover_color="#666666", height=40)
+            btn.grid(row=fila, column=columna, padx=5, pady=5, sticky="nsew")
+            self.botones_issues[nombre_issue] = btn
+            
 
     def mostrar_vehiculos(self):
         for widget in self.frame_vehiculos.winfo_children():
@@ -226,8 +263,12 @@ class App(ctk.CTk):
 
 
     def agregar_log(self, mensaje):
-        self.log_completo += f"\n> {mensaje}"
-        self.log_label.configure(text=self.log_completo)
+        self.log_text.configure(state="normal")
+        formato_mensaje = f"\n> {mensaje}"
+        self.log_text.insert("end", formato_mensaje)
+        self.log_completo += formato_mensaje
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
 
     def actualizar_palletes(self, count):
         self.pallet_count = self.pallet_count + count
