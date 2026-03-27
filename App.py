@@ -12,6 +12,13 @@ from firebase_admin import credentials, db
 import threading
 import os
 import atexit
+import gspread
+from google.oauth2.service_account import Credentials
+from cryptography.fernet import Fernet
+import json
+
+VERSION = "1.03.27"
+REPO_OWNER = "eingelc"
 
 logging.basicConfig(level=logging.INFO)
 handler = RotatingFileHandler("app.log", maxBytes=1024*1024, backupCount=5)
@@ -46,6 +53,21 @@ Issues_Dict = {
 
 class App(ctk.CTk):
     def __init__(self):
+        #Google
+        SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+        with open("/home/Running/Data/secret.key", "rb") as f:
+            key = f.read()
+        fernet = Fernet(key)
+        with open("/home/eingel/Documentos/data/Production/arcbest.enc", "rb") as f:
+            encrypted_data = f.read()
+        decrypted_data = fernet.decrypt(encrypted_data)
+        google_creds = json.loads(decrypted_data.decode())
+        Google_Credentials_Loaded = Credentials.from_service_account_info(info=google_creds, scopes=SCOPES)
+        gc = gspread.authorize(Google_Credentials_Loaded)
+        sh1 = gc.open_by_key("1Yoq1a_51iIu5OOP9SUMSYs6octcumsXNvJS1ovH27Ho")
+        self.worksheet = sh1.worksheet("RAW_EVENTS_2")
+
+        #App
         super().__init__()
         self.title("ArcBest Register")
         self.geometry(f"{1000}x{420}")
@@ -59,10 +81,14 @@ class App(ctk.CTk):
         #Variables
         self.usuario_seleccionado = None
         self.site_seleccionado = None
+        self.vehiculo_seleccionado = None
         self.log_completo = "Esperando Actividad..."
         self.pilotos_widgets = {}
         self.botones_vehiculos = {}
         self.botones_issues = {}
+        self.cache_issues = []
+        self.logs_DF = []
+        self.vehiculo_bool = False
 
         #Seccion 1
         self.sidebar_frame = ctk.CTkFrame(self, width=100, corner_radius=0)
@@ -97,21 +123,21 @@ class App(ctk.CTk):
         self.pallet_label = ctk.CTkLabel(self.frame_palete, text="Palletes", font=ctk.CTkFont(size=16, weight="bold"))
         self.pallet_label.grid(row=0, column=0, columnspan=2, padx=(20), pady=(0, 5), sticky="ew")
  
-        self.pallet_add = ctk.CTkButton(self.frame_palete, text="Agregar Pallete", command=lambda: self.actualizar_palletes(int(1)))
+        self.pallet_add = ctk.CTkButton(self.frame_palete, text="Agregar Pallete", state="disabled", command=lambda: self.actualizar_palletes(int(1)))
         self.pallet_add.grid(row=1, column=0, padx=(20, 10), pady=(10), sticky="nsew")
-        self.pallet_remove = ctk.CTkButton(self.frame_palete, text="Eliminar Pallete", command=lambda: self.actualizar_palletes(int(-1)))
+        self.pallet_remove = ctk.CTkButton(self.frame_palete, text="Eliminar Pallete", state="disabled", command=lambda: self.actualizar_palletes(int(-1)))
         self.pallet_remove.grid(row=1, column=1, padx=(10, 20), pady=(10), sticky="nsew")
 
         self.issue_label = ctk.CTkLabel(self.frame_palete, text="Issues", font=ctk.CTkFont(size=16, weight="bold"))
         self.issue_label.grid(row=2, column=0, columnspan=2, padx=(20), pady=(0, 5), sticky="ew")
 
-        self.issue_segments = ctk.CTkSegmentedButton(self.frame_palete, values=list(Issues_Dict.keys()), command=self.mostrar_issues)
+        self.issue_segments = ctk.CTkSegmentedButton(self.frame_palete, values=list(Issues_Dict.keys()),state="disabled", command=self.mostrar_issues)
         self.issue_segments.grid(row=3, column=0, columnspan=2, padx=20, pady=(5, 10), sticky="ew")
 
         self.frame_issues = ctk.CTkFrame(self.frame_palete, width=200, height=100, fg_color="transparent")
         self.frame_issues.grid(row=4, column=0, columnspan=2, sticky="nsew")
 
-        self.issue_label = ctk.CTkLabel(self.frame_palete, text="Vehicles", font=ctk.CTkFont(size=16, weight="bold"))
+        self.issue_label = ctk.CTkLabel(self.frame_palete, text="Vehiculos", font=ctk.CTkFont(size=16, weight="bold"))
         self.issue_label.grid(row=5, column=0, columnspan=2, padx=(20), pady=(0, 5), sticky="ew")
 
         self.frame_vehiculos = ctk.CTkFrame(self.frame_palete, width=200, height=100, fg_color="transparent")
@@ -119,6 +145,7 @@ class App(ctk.CTk):
 
         #Seccion 2 B
         self.frame_palete1 = ctk.CTkFrame(self, width=300, fg_color="transparent")
+        self.frame_palete1.grid_rowconfigure(1, weight=1)
         self.frame_palete1.grid(row=0, column=2, rowspan=5, sticky="nsew")
         self.frame_palete1.grid_columnconfigure(0, weight=1)
         self.frame_palete1.grid_propagate(False)
@@ -126,6 +153,9 @@ class App(ctk.CTk):
         self.log_text.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         self.log_text.insert("0.0", self.log_completo)
         self.log_text.configure(state="disabled")
+
+        self.opened_issues_frame = ctk.CTkScrollableFrame(self.frame_palete1, label_text="Opened Issues")
+        self.opened_issues_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
 
     def iniciar_listener(self):
         def callback(event):
@@ -138,7 +168,6 @@ class App(ctk.CTk):
         for widget in self.frame_issues.winfo_children():
             widget.destroy()
         self.botones_issues = {}
-
         issues = Issues_Dict.get(seleccion, [])
 
         for n in range(4):
@@ -148,9 +177,40 @@ class App(ctk.CTk):
             fila = i // 4
             columna = i % 4
             btn = ctk.CTkButton(self.frame_issues, text=nombre_issue, fg_color="#4A4A4A", hover_color="#666666", height=40)
-            btn.grid(row=fila, column=columna, padx=5, pady=5, sticky="nsew")
+            btn.configure(command=lambda b=btn, v=nombre_issue: self.seleccionar_issue(v, b))
+            btn.grid(row=fila, column=columna, padx=5, pady=5, sticky="nsew") 
             self.botones_issues[nombre_issue] = btn
-            
+
+    def seleccionar_issue(self, issue, boton_original):
+        ahora = time.strftime("%H:%M:%S")
+        COLOR_ROJO = "#FF4B4B"
+        boton_original.configure(fg_color=COLOR_ROJO, hover_color="#B22222")
+        fila_reporte = ctk.CTkFrame(self.opened_issues_frame, fg_color="gray25")
+        fila_reporte.pack(pady=2, fill="x", padx=5)
+        lbl_info = ctk.CTkLabel(fila_reporte, text=f"[{ahora}] {issue}", font=ctk.CTkFont(size=11))
+        lbl_info.pack(side="left", padx=10, pady=5)
+        btn_resolver = ctk.CTkButton(fila_reporte, text="Resuelto", width=60, height=20, fg_color="#2fa572", hover_color="#1e6e4c")
+        btn_resolver.pack(side="right", padx=5, pady=5)
+
+        reporte = {"nombre": issue, "contenedor": fila_reporte, "referencia_original": boton_original}
+        btn_resolver.configure(command=lambda r=reporte: self.eliminar_reporte(r))
+        self.cache_issues.append(reporte)
+        self.agregar_log(Mode="Issue", Event="Issue Started")
+
+    def eliminar_reporte(self, reporte_dict):
+        reporte_dict["contenedor"].destroy()
+        if reporte_dict in self.cache_issues:
+            self.cache_issues.remove(reporte_dict)
+
+        nombre_issue = reporte_dict["nombre"]
+        quedan_otros = any(r["nombre"] == nombre_issue for r in self.cache_issues)
+        
+        if not quedan_otros:
+            try:
+                reporte_dict["referencia_original"].configure(fg_color="#4A4A4A", hover_color="#666666")
+            except:
+                pass
+        self.agregar_log(Mode="Issue", Event="Issue Ended")
 
     def mostrar_vehiculos(self):
         for widget in self.frame_vehiculos.winfo_children():
@@ -165,9 +225,8 @@ class App(ctk.CTk):
 
         for i, nombre_vehiculo in enumerate(vehiculos):
             fila = i // 4
-            columna = i % 4
-            
-            btn = ctk.CTkButton(self.frame_vehiculos, text=nombre_vehiculo)
+            columna = i % 4  
+            btn = ctk.CTkButton(self.frame_vehiculos, text=nombre_vehiculo, fg_color="#3a3a3a")
             btn.configure(command=lambda b=btn, v=nombre_vehiculo: self.seleccionar_vehiculo(v, b))
             btn.grid(row=fila, column=columna, padx=5, pady=5, sticky="nsew")
             self.botones_vehiculos[nombre_vehiculo] = btn
@@ -186,31 +245,23 @@ class App(ctk.CTk):
         COLOR_NORMAL = "#3a3a3a"
 
         for nombre_v, info in datos.items():
+
             if nombre_v in self.botones_vehiculos:
                 btn = self.botones_vehiculos[nombre_v]
                 status = info.get("status", "offline")
                 usuario_que_lo_tiene = info.get("user", "none")
 
                 if status == "online" and usuario_que_lo_tiene != self.usuario_seleccionado:
-                    btn.configure(
-                        fg_color=COLOR_OCUPADO, 
-                        state="disabled",
-                        text=f"{nombre_v}\n({usuario_que_lo_tiene})"
-                    )
-
+                    btn.configure(fg_color=COLOR_OCUPADO, state="disabled", text=f"{nombre_v}\n({usuario_que_lo_tiene})")
                 elif status == "online" and usuario_que_lo_tiene == self.usuario_seleccionado:
-                    btn.configure(
-                        fg_color=COLOR_MIO, 
-                        state="normal", 
-                        text=f"{nombre_v}\n(Tú)"
-                    )
-
+                    btn.configure(fg_color=COLOR_MIO, state="normal", text=f"{nombre_v}\n(Tú)")
+                elif self.vehiculo_bool == True:
+                    btn.configure(fg_color=COLOR_NORMAL, state="disabled", text=nombre_v)
                 else:
-                    btn.configure(
-                        fg_color=COLOR_NORMAL, 
-                        state="normal", 
-                        text=nombre_v
-                    )
+                    btn.configure(fg_color=COLOR_NORMAL, state="normal", text=nombre_v)
+
+                if self.cronometro_activo == False:
+                    btn.configure(state="disabled")
 
     def mostrar_pilotos_activos(self, datos_firebase):
         VERDE_CTK = "#2fa572"
@@ -247,22 +298,33 @@ class App(ctk.CTk):
         sitio = self.Site.get()
         ref = db.reference(f'sitios/{sitio}/{nombre_v}')
         actual = ref.get()
-        ahora = time.strftime("%H:%M:%S")
         if actual.get("status") == "offline":
             ref.update({
                 "status": "online",
                 "user": self.usuario_seleccionado
             })
-            self.agregar_log(f"Seleccionaste {nombre_v} en {sitio} a las {ahora}")
+            self.vehiculo_seleccionado = nombre_v
+            self.agregar_log(Mode="Working", Event="Vehicle Selected")
+            self.vehiculo_bool = True
+            self.btn_turno.configure(state="disabled")
+            self.activar_opciones(estado="normal")
         else:
             ref.update({
                 "status": "offline",
                 "user": "none"
             })
-            self.agregar_log(f"Dejaste {nombre_v} en {sitio} a las {ahora}")
+            self.vehiculo_seleccionado = None
+            self.agregar_log(Mode="Working", Event="Vehicle Deselected")
+            self.vehiculo_bool = False
+            self.btn_turno.configure(state="normal")
+            self.activar_opciones(estado="disabled")
 
+    def agregar_log(self, Mode, Event):
+        ahora = time.strftime("%H:%M:%S")
+        hoy = time.strftime("%d/%m/%Y %H:%M:%S")
+        self.logs_DF.append([hoy, self.site_seleccionado, self.usuario_seleccionado, self.vehiculo_seleccionado, Mode, Event])
+        mensaje = f"{Event} at {ahora} | {self.site_seleccionado} | {self.usuario_seleccionado}"
 
-    def agregar_log(self, mensaje):
         self.log_text.configure(state="normal")
         formato_mensaje = f"\n> {mensaje}"
         self.log_text.insert("end", formato_mensaje)
@@ -272,9 +334,15 @@ class App(ctk.CTk):
 
     def actualizar_palletes(self, count):
         self.pallet_count = self.pallet_count + count
-        self.pallet_label.configure(text=f"Palletes: {self.pallet_count}")
-        ahora = time.strftime("%H:%M:%S")
-        self.agregar_log(f"{'Agregado' if count > 0 else 'Eliminado'} un pallete a las {ahora}. Total: {self.pallet_count}")
+        if self.pallet_count >= 0:
+            if count > 0:
+                Evento = "Pallet_Added"
+            else:
+                Evento = "Pallet_Deleted"
+            self.pallet_label.configure(text=f"Palletes: {self.pallet_count}")
+            self.agregar_log(Mode="Working", Event=Evento)
+        else:
+            self.pallet_count = 0
 
     def login(self):
         if self.login_window is None or not self.login_window.winfo_exists():
@@ -306,7 +374,8 @@ class App(ctk.CTk):
     def cambiar_sesion(self):
         respuesta = messagebox.askokcancel(title="Cambiar Sesión", message="¿Estás seguro de que deseas cambiar de sesión? Esto reiniciará el cronómetro y el conteo de palletes.", parent=self, icon="warning")
         if respuesta:
-            self.agregar_log(f"Sesión de {self.usuario_seleccionado} en {self.site_seleccionado} cerrada a las {time.strftime('%H:%M:%S')}")
+            self.agregar_log(Mode="Waiting", Event="Logout")
+            self.upload_data()
             self.cambiar_estatus_firebase("offline")
             self.usuario_seleccionado = None
             self.site_seleccionado = None
@@ -315,6 +384,14 @@ class App(ctk.CTk):
             self.label_tiempo.configure(text="00:00:00")
             self.pallet_label.configure(text="Palletes: 0")
             self.btn_turno.configure(text="Iniciar Turno", fg_color="green")
+            self.vehiculo_seleccionado = None
+            self.log_completo = "Esperando Actividad..."
+            self.pilotos_widgets = {}
+            self.botones_vehiculos = {}
+            self.botones_issues = {}
+            self.cache_issues = []
+            self.logs_DF = []
+            self.vehiculo_bool = False
             self.login()
 
     def finalizar_login(self):
@@ -324,7 +401,7 @@ class App(ctk.CTk):
         if self.usuario_seleccionado == "Piloto" or self.site_seleccionado == "Sitio":
             messagebox.showerror("Error", "Por favor, seleccione un piloto y un sitio válidos.", parent=self.login_window, icon="error")
         else:
-            self.agregar_log(f"Iniciando sesión como {self.usuario_seleccionado} en {self.site_seleccionado} a las {time.strftime('%H:%M:%S')}")
+            self.agregar_log(Mode="Waiting", Event="Login")
             self.mostrar_vehiculos()
             self.cambiar_estatus_firebase("online")
             threading.Thread(target=self.iniciar_listener, daemon=True).start()
@@ -348,17 +425,38 @@ class App(ctk.CTk):
                                 "user": "none"
                             })
 
+    def activar_opciones(self, estado):
+        self.issue_segments.configure(state=estado)
+        self.pallet_add.configure(state=estado)
+        self.pallet_remove.configure(state=estado)
+        for issue in self.botones_issues:
+            btn = self.botones_issues[issue]
+            btn.configure(state=estado)
+
+    def cambiar_botones(self, estado):
+        sitio = self.site_seleccionado
+        datos_sitio = db.reference(f'sitios/{sitio}').get()
+        for nombre_v, info in datos_sitio.items():
+            status = info.get("status", "offline")
+            btn = self.botones_vehiculos[nombre_v]
+            if status == "online":
+                btn.configure(state="disabled")
+            else:
+                btn.configure(state=estado)
+
     def gestionar_turno(self):
-        if not self.cronometro_activo:
-            self.agregar_log(f"Turno iniciado por {self.usuario_seleccionado} en {self.site_seleccionado} a las {time.strftime('%H:%M:%S')}")
+        if self.cronometro_activo == False:
+            self.agregar_log(Mode="Waiting", Event="Shift Started")
             self.inicio_turno = time.time()
             self.cronometro_activo = True
             self.btn_turno.configure(text="Finalizar Turno", fg_color="red")
             self.actualizar_cronometro()
+            self.cambiar_botones(estado="normal")
         else:
-            self.agregar_log(f"Turno terminado por {self.usuario_seleccionado} en {self.site_seleccionado} a las {time.strftime('%H:%M:%S')}")
+            self.agregar_log(Mode="Waiting", Event="Shift Ended")
             self.cronometro_activo = False
             self.btn_turno.configure(text="Iniciar Turno", fg_color="green")
+            self.cambiar_botones(estado="disabled")
 
     def actualizar_cronometro(self):
         if self.cronometro_activo:
@@ -368,13 +466,18 @@ class App(ctk.CTk):
             segundos = int(tiempo_actual % 60)
             self.label_tiempo.configure(text=f"{horas:02d}:{minutos:02d}:{segundos:02d}")
             self.after(1000, self.actualizar_cronometro)
-    
+
     def on_close(self):
-        self.agregar_log(f"Guardando log a las {time.strftime('%H:%M:%S')}...")
         self.cambiar_estatus_firebase("offline")
+        self.upload_data()
         self.quit()
         self.destroy()
         sys.exit()
+
+    def upload_data(self):
+        print(self.logs_DF)
+        self.worksheet.append_rows(self.logs_DF)
+        print("Exito")
 
 app = App()
 app.login()
