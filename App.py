@@ -1,30 +1,36 @@
 import tkinter as tk
 from tkinter import messagebox
-import pandas as pd
-import numpy as np
 import customtkinter as ctk
 import sys
 import time
-import logging
-from logging.handlers import RotatingFileHandler
 import firebase_admin
 from firebase_admin import credentials, db
 import threading
 import os
+import sys
 import atexit
 import gspread
 from google.oauth2.service_account import Credentials
 from cryptography.fernet import Fernet
 import json
 
-VERSION = "1.03.27"
+VERSION = "1.04.01"
 REPO_OWNER = "eingelc"
 
-logging.basicConfig(level=logging.INFO)
-handler = RotatingFileHandler("app.log", maxBytes=1024*1024, backupCount=5)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logging.getLogger().addHandler(handler)
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+elif 'ipykernel' in sys.modules:
+    BASE_DIR = os.getcwd()
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FILES_DIR = os.path.join(BASE_DIR, "Files")
+
+if not os.path.exists(FILES_DIR):
+    os.makedirs(FILES_DIR)
+
+key_path = os.path.join(FILES_DIR, "secret.key")
+enc_path = os.path.join(FILES_DIR, "arcbest.enc")
+arc_json = os.path.join(FILES_DIR,"arcbest.json")
 
 try:
     cred = credentials.Certificate("firebasekey.json")
@@ -51,34 +57,32 @@ Issues_Dict = {
     "Vehicle": ["Lidar issue", "Low battery", "Calibration issue", "Throttle loss", "Pallet issue", "Mislocated issue", "Protective stop"]
 }
 
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+with open(key_path, "rb") as f:
+    key = f.read()
+fernet = Fernet(key)
+with open(enc_path, "rb") as f:
+    encrypted_data = f.read()
+decrypted_data = fernet.decrypt(encrypted_data)
+google_creds = json.loads(decrypted_data.decode())
+Google_Credentials_Loaded = Credentials.from_service_account_info(info=google_creds, scopes=SCOPES)
+gc = gspread.authorize(Google_Credentials_Loaded)
+sh1 = gc.open_by_key("ajiwjdoiwjadoaj1239vsjdse")
+worksheet = sh1.worksheet("RAW_EVENTS")
+print("Google cargado correctamente...")
+
 class App(ctk.CTk):
     def __init__(self):
-        #Google
-        SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-        with open("/home/Running/Data/secret.key", "rb") as f:
-            key = f.read()
-        fernet = Fernet(key)
-        with open("/home/eingel/Documentos/data/Production/arcbest.enc", "rb") as f:
-            encrypted_data = f.read()
-        decrypted_data = fernet.decrypt(encrypted_data)
-        google_creds = json.loads(decrypted_data.decode())
-        Google_Credentials_Loaded = Credentials.from_service_account_info(info=google_creds, scopes=SCOPES)
-        gc = gspread.authorize(Google_Credentials_Loaded)
-        sh1 = gc.open_by_key("1Yoq1a_51iIu5OOP9SUMSYs6octcumsXNvJS1ovH27Ho")
-        self.worksheet = sh1.worksheet("RAW_EVENTS_2")
-
         #App
+        print("Iniciando interfaz...")
         super().__init__()
-        self.title("ArcBest Register")
         self.geometry(f"{1000}x{420}")
         self.grid_columnconfigure(1, weight=1)
         self.grid_columnconfigure((2, 3), weight=0)
         self.grid_rowconfigure((0, 1, 2), weight=1)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.resizable(False, False)
-        atexit.register(self.on_close)
-
-        #Variables
+        #atexit.register(self.on_close)
         self.usuario_seleccionado = None
         self.site_seleccionado = None
         self.vehiculo_seleccionado = None
@@ -162,7 +166,7 @@ class App(ctk.CTk):
             usuarios = db.reference("/usuarios/").get()
             if self.winfo_exists() and usuarios:
                 self.after(0, lambda: self.mostrar_pilotos_activos(usuarios))
-        db.reference('usuarios').listen(callback)
+        self.usuarios_listener = db.reference('usuarios').listen(callback)
 
     def mostrar_issues(self, seleccion):
         for widget in self.frame_issues.winfo_children():
@@ -237,7 +241,7 @@ class App(ctk.CTk):
             datos_sitio = db.reference(f'sitios/{sitio}').get()
             if datos_sitio:
                 self.after(0, lambda: self.actualizar_colores_tiempo_real(datos_sitio))
-        db.reference(f'sitios/{sitio}').listen(callback)
+        self.vehiculos_listener = db.reference(f'sitios/{sitio}').listen(callback)
 
     def actualizar_colores_tiempo_real(self, datos):
         COLOR_OCUPADO = "#7B3030"
@@ -369,14 +373,15 @@ class App(ctk.CTk):
 
             btn_cerrar = ctk.CTkButton(self.login_window, text="Aceptar", command=self.finalizar_login)
             btn_cerrar.pack(pady=10)
-            self.wait_window(self.login_window)
+            #self.wait_window(self.login_window)
 
     def cambiar_sesion(self):
         respuesta = messagebox.askokcancel(title="Cambiar Sesión", message="¿Estás seguro de que deseas cambiar de sesión? Esto reiniciará el cronómetro y el conteo de palletes.", parent=self, icon="warning")
         if respuesta:
             self.agregar_log(Mode="Waiting", Event="Logout")
-            self.upload_data()
             self.cambiar_estatus_firebase("offline")
+            self.upload_data()
+            self.mostrar_pilotos_activos(db.reference("/usuarios/").get())
             self.usuario_seleccionado = None
             self.site_seleccionado = None
             self.cronometro_activo = False
@@ -468,17 +473,41 @@ class App(ctk.CTk):
             self.after(1000, self.actualizar_cronometro)
 
     def on_close(self):
-        self.cambiar_estatus_firebase("offline")
-        self.upload_data()
+        print("Iniciando cierre seguro...")
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        def proceso_final():
+            try:
+                print("Subiendo datos a Google Sheets...")
+                self.upload_data()
+                print("Cerrando sesión en Firebase...")
+                self.cambiar_estatus_firebase("offline")
+                '''
+                if hasattr(self, 'usuarios_listener'):
+                    self.usuarios_listener.close()
+                if hasattr(self, 'vehiculos_listener'):
+                    self.vehiculos_listener.close()
+                '''
+            except Exception as e:
+                print(f"Error durante el cierre: {e}")
+            finally:
+                self.after(0, self.destruccion_final)
+
+        thread_cierre = threading.Thread(target=proceso_final)
+        thread_cierre.start()
+
+    def destruccion_final(self):
+        print("App destruida con éxito.")
         self.quit()
         self.destroy()
-        sys.exit()
+        os._exit(0)
 
     def upload_data(self):
-        print(self.logs_DF)
-        self.worksheet.append_rows(self.logs_DF)
-        print("Exito")
+        worksheet.append_rows(self.logs_DF)
+        print("Data subida con éxito")
 
-app = App()
-app.login()
-app.mainloop()
+if __name__ == "__main__":
+    app = App()
+    app.title("ArcBest Register")
+    app.login()
+    app.mainloop()
