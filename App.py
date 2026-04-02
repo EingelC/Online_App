@@ -77,12 +77,14 @@ class App(ctk.CTk):
         print("Iniciando interfaz...")
         super().__init__()
         self.geometry(f"{1000}x{420}")
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_columnconfigure((2, 3), weight=0)
+        self.grid_columnconfigure(0, weight=0)
+        self.grid_columnconfigure(1, weight=0)
+        self.grid_columnconfigure(2, weight=1)
         self.grid_rowconfigure((0, 1, 2), weight=1)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.resizable(False, False)
-        #atexit.register(self.on_close)
+        self.minsize(1000, 420)
+
+        #Variables        
         self.usuario_seleccionado = None
         self.site_seleccionado = None
         self.vehiculo_seleccionado = None
@@ -95,9 +97,10 @@ class App(ctk.CTk):
         self.vehiculo_bool = False
 
         #Seccion 1
-        self.sidebar_frame = ctk.CTkFrame(self, width=100, corner_radius=0)
+        self.sidebar_frame = ctk.CTkFrame(self, width=200, corner_radius=0)
         self.sidebar_frame.grid(row=0, column=0, rowspan=5, sticky="nsew")
         self.sidebar_frame.grid_rowconfigure(5, weight=1)
+        self.sidebar_frame.grid_propagate(False)
 
         self.label_tiempo = ctk.CTkLabel(self.sidebar_frame, text="00:00:00", font=ctk.CTkFont(size=20, weight="bold"))
         self.label_tiempo.grid(row=0, column=0, padx=20, pady=(20, 10))
@@ -118,11 +121,11 @@ class App(ctk.CTk):
         self.pallet_count = 0
 
         #Seccion 2 A
-        self.frame_palete = ctk.CTkFrame(self, width=200, fg_color="transparent")
+        self.frame_palete = ctk.CTkFrame(self, width=600, fg_color="transparent")
         self.frame_palete.grid(row=0, column=1, rowspan=6, sticky="nsew")
         self.frame_palete.grid_columnconfigure(0, weight=1)
         self.frame_palete.grid_columnconfigure(1, weight=1)
-        #self.frame_palete.grid_rowconfigure(1, weight=1)
+        self.frame_palete.grid_propagate(False)
 
         self.pallet_label = ctk.CTkLabel(self.frame_palete, text="Palletes", font=ctk.CTkFont(size=16, weight="bold"))
         self.pallet_label.grid(row=0, column=0, columnspan=2, padx=(20), pady=(0, 5), sticky="ew")
@@ -140,12 +143,14 @@ class App(ctk.CTk):
 
         self.frame_issues = ctk.CTkFrame(self.frame_palete, width=200, height=100, fg_color="transparent")
         self.frame_issues.grid(row=4, column=0, columnspan=2, sticky="nsew")
+        self.frame_issues.grid_propagate(False)
 
         self.issue_label = ctk.CTkLabel(self.frame_palete, text="Vehiculos", font=ctk.CTkFont(size=16, weight="bold"))
         self.issue_label.grid(row=5, column=0, columnspan=2, padx=(20), pady=(0, 5), sticky="ew")
 
         self.frame_vehiculos = ctk.CTkFrame(self.frame_palete, width=200, height=100, fg_color="transparent")
         self.frame_vehiculos.grid(row=6, column=0, columnspan=2, sticky="nsew")
+        self.frame_vehiculos.grid_propagate(False)
 
         #Seccion 2 B
         self.frame_palete1 = ctk.CTkFrame(self, width=300, fg_color="transparent")
@@ -311,6 +316,7 @@ class App(ctk.CTk):
             self.agregar_log(Mode="Working", Event="Vehicle Selected")
             self.vehiculo_bool = True
             self.btn_turno.configure(state="disabled")
+            self.btn_login.configure(state="disabled")
             self.activar_opciones(estado="normal")
         else:
             ref.update({
@@ -321,6 +327,7 @@ class App(ctk.CTk):
             self.agregar_log(Mode="Working", Event="Vehicle Deselected")
             self.vehiculo_bool = False
             self.btn_turno.configure(state="normal")
+            self.btn_login.configure(state="normal")
             self.activar_opciones(estado="disabled")
 
     def agregar_log(self, Mode, Event):
@@ -373,7 +380,9 @@ class App(ctk.CTk):
 
             btn_cerrar = ctk.CTkButton(self.login_window, text="Aceptar", command=self.finalizar_login)
             btn_cerrar.pack(pady=10)
-            #self.wait_window(self.login_window)
+
+            btn_exit = ctk.CTkButton(self.login_window, text="Salir", fg_color="red", command=self.on_close)
+            btn_exit.pack(pady=10)
 
     def cambiar_sesion(self):
         respuesta = messagebox.askokcancel(title="Cambiar Sesión", message="¿Estás seguro de que deseas cambiar de sesión? Esto reiniciará el cronómetro y el conteo de palletes.", parent=self, icon="warning")
@@ -482,12 +491,6 @@ class App(ctk.CTk):
                 self.upload_data()
                 print("Cerrando sesión en Firebase...")
                 self.cambiar_estatus_firebase("offline")
-                '''
-                if hasattr(self, 'usuarios_listener'):
-                    self.usuarios_listener.close()
-                if hasattr(self, 'vehiculos_listener'):
-                    self.vehiculos_listener.close()
-                '''
             except Exception as e:
                 print(f"Error durante el cierre: {e}")
             finally:
