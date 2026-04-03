@@ -32,12 +32,6 @@ key_path = os.path.join(FILES_DIR, "secret.key")
 enc_path = os.path.join(FILES_DIR, "arcbest.enc")
 arc_json = os.path.join(FILES_DIR,"arcbest.json")
 
-try:
-    cred = credentials.Certificate("firebasekey.json")
-    firebase_admin.initialize_app(cred, {'databaseURL': 'https://your_url_here.firebaseio.com/'})
-except ValueError:
-    pass 
-
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("green")
 
@@ -72,21 +66,21 @@ worksheet = sh1.worksheet("RAW_EVENTS")
 print("Google cargado correctamente...")
 
 class App(ctk.CTk):
-    def __init__(self):
-        #App
-        print("Iniciando interfaz...")
+    def __init__(self, sitio, usuario):
         super().__init__()
-        self.geometry(f"{1000}x{420}")
+        self.title("ArcBest Register")
+        self.geometry(f"{1100}x{420}")
+        self.configure(fg_color="#FFFFFF")
+
         self.grid_columnconfigure(0, weight=0)
         self.grid_columnconfigure(1, weight=0)
         self.grid_columnconfigure(2, weight=1)
-        self.grid_rowconfigure((0, 1, 2), weight=1)
+        self.grid_rowconfigure(0, weight=1)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.minsize(1000, 420)
-
-        #Variables        
-        self.usuario_seleccionado = None
-        self.site_seleccionado = None
+        self.minsize(1100, 420)
+        #Variables
+        self.site_seleccionado = sitio
+        self.usuario_seleccionado = usuario
         self.vehiculo_seleccionado = None
         self.log_completo = "Esperando Actividad..."
         self.pilotos_widgets = {}
@@ -95,45 +89,55 @@ class App(ctk.CTk):
         self.cache_issues = []
         self.logs_DF = []
         self.vehiculo_bool = False
-
-        #Seccion 1
-        self.sidebar_frame = ctk.CTkFrame(self, width=200, corner_radius=0)
-        self.sidebar_frame.grid(row=0, column=0, rowspan=5, sticky="nsew")
-        self.sidebar_frame.grid_rowconfigure(5, weight=1)
-        self.sidebar_frame.grid_propagate(False)
-
-        self.label_tiempo = ctk.CTkLabel(self.sidebar_frame, text="00:00:00", font=ctk.CTkFont(size=20, weight="bold"))
-        self.label_tiempo.grid(row=0, column=0, padx=20, pady=(20, 10))
-        self.label_tiempo.pack(pady=10)
-
-        self.btn_login = ctk.CTkButton(self.sidebar_frame, text="Cambiar Sesión", command=self.cambiar_sesion)
-        self.btn_login.pack(pady=20)
-        self.login_window = None
-
-        self.btn_turno = ctk.CTkButton(self.sidebar_frame, text="Iniciar Turno", command=self.gestionar_turno)
-        self.btn_turno.pack(pady=10)
-
-        self.usuarios_frame = ctk.CTkScrollableFrame(self.sidebar_frame, label_text="Usuarios", width=150, height=200)
-        self.usuarios_frame.pack(pady=10, fill="both", expand=True)
-
         self.inicio_turno = None
         self.cronometro_activo = False
         self.pallet_count = 0
 
-        #Seccion 2 A
-        self.frame_palete = ctk.CTkFrame(self, width=600, fg_color="transparent")
-        self.frame_palete.grid(row=0, column=1, rowspan=6, sticky="nsew")
-        self.frame_palete.grid_columnconfigure(0, weight=1)
-        self.frame_palete.grid_columnconfigure(1, weight=1)
-        self.frame_palete.grid_propagate(False)
+        self.main = "#1e4388"    # Morado principal
+        self.hover = "#122D60"   # Morado oscuro
+        self.bg_light_gray = "#f3f4f6"  # Gris muy suave para tarjetas
+        self.sidebar_bg = "#1a1a1a"     # Sidebar oscuro (contraste moderno)
+        self.text_dark = "#1F2937"
+        self.white = "#ffffff"
 
-        self.pallet_label = ctk.CTkLabel(self.frame_palete, text="Palletes", font=ctk.CTkFont(size=16, weight="bold"))
-        self.pallet_label.grid(row=0, column=0, columnspan=2, padx=(20), pady=(0, 5), sticky="ew")
+        # Sidebar
+        self.sidebar_frame = ctk.CTkFrame(self, width=240,fg_color=self.white, corner_radius=0)
+        self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
+        self.sidebar_frame.grid_propagate(False)
+
+        self.user_card = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent", corner_radius=0)
+        self.user_card.pack(pady=5, padx=5, fill="x")
+        
+        self.lbl_user = ctk.CTkLabel(self.user_card, text=f"👤 {usuario}", font=("Helvetica", 18, "bold"), text_color=self.text_dark)
+        self.lbl_user.pack(pady=5)
+
+        self.label_tiempo = ctk.CTkLabel(self.sidebar_frame, text="--:--:--", font=("Helvetica", 24, "bold"), text_color=self.text_dark)
+        self.label_tiempo.pack(pady=(10,10))
+
+        self.btn_login = ctk.CTkButton(self.sidebar_frame,text="⍈", font=("Inter", 20), width=45, height=45, corner_radius=100, fg_color="#ef4444", hover_color="#b91c1c", text_color="white", command=self.cambiar_sesion)
+        self.btn_login.pack(pady=10, padx=20)
+
+        self.btn_turno = ctk.CTkButton(self.sidebar_frame, text="▶", text_color=self.white, fg_color=self.main, hover_color=self.hover, width=45, height=45, corner_radius=100, font=("Inter", 10),command=self.gestionar_turno)
+        self.btn_turno.pack(pady=10, padx=20)
+
+        self.usuarios_frame = ctk.CTkScrollableFrame(self.sidebar_frame, label_text="Usuarios", label_text_color=self.text_dark, fg_color="transparent", height=250)
+        self.usuarios_frame.pack(pady=20, padx=10, fill="both", expand=True)
+
+        # --- PANEL CENTRAL ---
+        self.frame_palete = ctk.CTkFrame(self, fg_color="transparent")
+        self.frame_palete.grid(row=0, column=1, padx=30, pady=20, sticky="nsew")
+        self.frame_palete.grid_propagate(False)
+        # Pallets
+        self.card_palletes = ctk.CTkFrame(self.frame_palete, fg_color=self.bg_light_gray, corner_radius=15)
+        self.card_palletes.pack(fill="x", pady=(0, 20), ipady=10)
+
+        self.pallet_label = ctk.CTkLabel(self.card_palletes, text="Palletes: 0", font=("Helvetica", 16, "bold"), text_color=self.text_dark)
+        self.pallet_label.pack(pady=10)
  
-        self.pallet_add = ctk.CTkButton(self.frame_palete, text="Agregar Pallete", state="disabled", command=lambda: self.actualizar_palletes(int(1)))
-        self.pallet_add.grid(row=1, column=0, padx=(20, 10), pady=(10), sticky="nsew")
-        self.pallet_remove = ctk.CTkButton(self.frame_palete, text="Eliminar Pallete", state="disabled", command=lambda: self.actualizar_palletes(int(-1)))
-        self.pallet_remove.grid(row=1, column=1, padx=(10, 20), pady=(10), sticky="nsew")
+        self.pallet_add = ctk.CTkButton(self.card_palletes, text="+ Agregar", fg_color="#10b981", hover_color="#059669", width=140, command=lambda: self.actualizar_palletes(int(1)))
+        self.pallet_add.pack(side="left", padx=(40, 10), pady=10)
+        self.pallet_remove = ctk.CTkButton(self.card_palletes, text="- Eliminar", fg_color="#ef4444", hover_color="#dc2626", width=140, command=lambda: self.actualizar_palletes(int(-1)))
+        self.pallet_remove.pack(side="left", padx=(40, 10), pady=10)
 
         self.issue_label = ctk.CTkLabel(self.frame_palete, text="Issues", font=ctk.CTkFont(size=16, weight="bold"))
         self.issue_label.grid(row=2, column=0, columnspan=2, padx=(20), pady=(0, 5), sticky="ew")
@@ -165,6 +169,18 @@ class App(ctk.CTk):
 
         self.opened_issues_frame = ctk.CTkScrollableFrame(self.frame_palete1, label_text="Opened Issues")
         self.opened_issues_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        self.Iniciar_App()
+
+    def Iniciar_App(self):
+        try:
+            self.agregar_log(Mode="Waiting", Event="Login")
+            self.mostrar_vehiculos()
+            self.cambiar_estatus_firebase("online")
+            threading.Thread(target=self.iniciar_listener, daemon=True).start()
+        except Exception as e:
+            messagebox.showerror("Error de Conexión", f"No se pudo conectar a Firebase: {e}")
+            self.destroy()
+            sys.exit(1)
 
     def iniciar_listener(self):
         def callback(event):
@@ -226,8 +242,7 @@ class App(ctk.CTk):
             widget.destroy()
         self.botones_vehiculos = {}
 
-        sitio_actual = self.Site.get()
-        vehiculos = Sitio_Dict.get(sitio_actual, [])
+        vehiculos = Sitio_Dict.get(self.site_seleccionado, [])
 
         for n in range(4):
             self.frame_vehiculos.grid_columnconfigure(n, weight=1)
@@ -239,7 +254,7 @@ class App(ctk.CTk):
             btn.configure(command=lambda b=btn, v=nombre_vehiculo: self.seleccionar_vehiculo(v, b))
             btn.grid(row=fila, column=columna, padx=5, pady=5, sticky="nsew")
             self.botones_vehiculos[nombre_vehiculo] = btn
-        self.iniciar_listener_vehiculos(sitio_actual)
+        self.iniciar_listener_vehiculos(self.site_seleccionado)
 
     def iniciar_listener_vehiculos(self, sitio):
         def callback(event):
@@ -304,7 +319,7 @@ class App(ctk.CTk):
                 self.pilotos_widgets[nombre] = lbl
 
     def seleccionar_vehiculo(self, nombre_v, boton):
-        sitio = self.Site.get()
+        sitio = self.site_seleccionado
         ref = db.reference(f'sitios/{sitio}/{nombre_v}')
         actual = ref.get()
         if actual.get("status") == "offline":
@@ -355,35 +370,6 @@ class App(ctk.CTk):
         else:
             self.pallet_count = 0
 
-    def login(self):
-        if self.login_window is None or not self.login_window.winfo_exists():
-            self.login_window = ctk.CTkToplevel(self)
-            self.login_window.title("Login")
-            self.login_window.geometry("300x300")
-            self.login_window.after(10, self.login_window.lift)
-            self.login_window.attributes("-topmost", True)
-            self.login_window.protocol("WM_DELETE_WINDOW", lambda: None)
-
-            self.login_window.wait_visibility()
-            self.login_window.grab_set()
-            self.login_window.transient(self)
-
-            label = ctk.CTkLabel(self.login_window, text="¡Bienvenido Arcbestiano!", font=("Arial", 20))
-            label.pack(pady=20)
-
-            self.Usuario = ctk.CTkOptionMenu(self.login_window, values=Pilotos)
-            self.Usuario.set("Piloto")
-            self.Usuario.pack(pady=10)
-            self.Site = ctk.CTkOptionMenu(self.login_window, values=list(Sitio_Dict.keys()))
-            self.Site.set("Sitio")
-            self.Site.pack(pady=10)
-
-            btn_cerrar = ctk.CTkButton(self.login_window, text="Aceptar", command=self.finalizar_login)
-            btn_cerrar.pack(pady=10)
-
-            btn_exit = ctk.CTkButton(self.login_window, text="Salir", fg_color="red", command=self.on_close)
-            btn_exit.pack(pady=10)
-
     def cambiar_sesion(self):
         respuesta = messagebox.askokcancel(title="Cambiar Sesión", message="¿Estás seguro de que deseas cambiar de sesión? Esto reiniciará el cronómetro y el conteo de palletes.", parent=self, icon="warning")
         if respuesta:
@@ -391,8 +377,6 @@ class App(ctk.CTk):
             self.cambiar_estatus_firebase("offline")
             self.upload_data()
             self.mostrar_pilotos_activos(db.reference("/usuarios/").get())
-            self.usuario_seleccionado = None
-            self.site_seleccionado = None
             self.cronometro_activo = False
             self.pallet_count = 0
             self.label_tiempo.configure(text="00:00:00")
@@ -406,27 +390,16 @@ class App(ctk.CTk):
             self.cache_issues = []
             self.logs_DF = []
             self.vehiculo_bool = False
-            self.login()
-
-    def finalizar_login(self):
-        self.usuario_seleccionado = self.Usuario.get()
-        self.site_seleccionado = self.Site.get()
-
-        if self.usuario_seleccionado == "Piloto" or self.site_seleccionado == "Sitio":
-            messagebox.showerror("Error", "Por favor, seleccione un piloto y un sitio válidos.", parent=self.login_window, icon="error")
-        else:
-            self.agregar_log(Mode="Waiting", Event="Login")
-            self.mostrar_vehiculos()
-            self.cambiar_estatus_firebase("online")
-            threading.Thread(target=self.iniciar_listener, daemon=True).start()
-            self.login_window.destroy()
+            self.destroy()
+            loggin_app = logging()
+            loggin_app.mainloop()
 
     def cambiar_estatus_firebase(self, nuevo_estado):
         if hasattr(self, 'usuario_seleccionado'):
             ref = db.reference(f'usuarios/{self.usuario_seleccionado}')
             ref.update({"estado": nuevo_estado, "ultima_conexion": time.strftime("%H:%M:%S")})
             if nuevo_estado == "offline":
-                sitio = self.Site.get()
+                sitio = self.site_seleccionado
                 ref_sitio = db.reference(f'sitios/{sitio}')
                 vehiculos_data = ref_sitio.get()
 
@@ -448,8 +421,7 @@ class App(ctk.CTk):
             btn.configure(state=estado)
 
     def cambiar_botones(self, estado):
-        sitio = self.site_seleccionado
-        datos_sitio = db.reference(f'sitios/{sitio}').get()
+        datos_sitio = db.reference(f'sitios/{self.site_seleccionado}').get()
         for nombre_v, info in datos_sitio.items():
             status = info.get("status", "offline")
             btn = self.botones_vehiculos[nombre_v]
@@ -463,7 +435,7 @@ class App(ctk.CTk):
             self.agregar_log(Mode="Waiting", Event="Shift Started")
             self.inicio_turno = time.time()
             self.cronometro_activo = True
-            self.btn_turno.configure(text="Finalizar Turno", fg_color="red")
+            self.btn_turno.configure(text="⏸", fg_color="red")
             self.actualizar_cronometro()
             self.cambiar_botones(estado="normal")
         else:
@@ -491,6 +463,8 @@ class App(ctk.CTk):
                 self.upload_data()
                 print("Cerrando sesión en Firebase...")
                 self.cambiar_estatus_firebase("offline")
+                firebase_admin.delete_app(firebase_admin.get_app())
+                print("Cierre completo")
             except Exception as e:
                 print(f"Error durante el cierre: {e}")
             finally:
@@ -506,11 +480,89 @@ class App(ctk.CTk):
         os._exit(0)
 
     def upload_data(self):
-        worksheet.append_rows(self.logs_DF)
+        #worksheet.append_rows(self.logs_DF)
         print("Data subida con éxito")
 
+class logging(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("ArcBest Login")
+        self.geometry("700x500")
+        self.resizable(False, False)
+        self.primary_color = "#1e4388"
+        self.bg_light = "#ffffff"
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
+        try:
+            self.bg_image = ctk.CTkImage(light_image=Image.open("/home/eingel/Descargas/a.jpg"),
+                                        dark_image=Image.open("/home/eingel/Descargas/Baakground.jpg"),
+                                        size=(350, 500))
+            self.image_label = ctk.CTkLabel(self, image=self.bg_image, text="")
+            self.image_label.grid(row=0, column=0, sticky="nsew")
+        except:
+            self.image_label = ctk.CTkFrame(self, fg_color="#1a1a1a", corner_radius=0)
+            self.image_label.grid(row=0, column=0, sticky="nsew")
+
+        self.login_frame = ctk.CTkFrame(self, fg_color=self.bg_light, corner_radius=0)
+        self.login_frame.grid(row=0, column=1, sticky="nsew")
+
+        self.title_label = ctk.CTkLabel(self.login_frame, text="Hola ArcBestiano!", font=("Helvetica", 28, "bold"), text_color="#333333")
+        self.title_label.pack(pady=(60, 5), padx=40, anchor="w")
+
+        self.subtitle_label = ctk.CTkLabel(self.login_frame, text="Inicia sesión en tu cuenta", font=("Helvetica", 14), text_color="#777777")
+        self.subtitle_label.pack(pady=(0, 30), padx=40, anchor="w")
+
+        self.email_label = ctk.CTkLabel(self.login_frame, text="✉ Email:", text_color="#333333")
+        self.email_label.pack(padx=40, anchor="w")
+        self.email_entry = ctk.CTkEntry(self.login_frame, width=270, height=35, fg_color="#eeeeee", text_color="#333333", border_width=0)
+        self.email_entry.pack(pady=(5, 15), padx=40)
+        self.pass_label = ctk.CTkLabel(self.login_frame, text="⛟ Sitio:", text_color="#333333")
+        self.pass_label.pack(padx=40, anchor="w")
+
+        self.site_menu = ctk.CTkOptionMenu(self.login_frame, values=list(Sitio_Dict.keys()),
+            fg_color="#f3f3f3",
+            button_color="#4071C6",
+            button_hover_color="#305CA7",
+            text_color="#333333",
+            dropdown_fg_color="#ffffff",
+            dropdown_hover_color="#eeeeee",
+            dropdown_text_color="#333333",
+            corner_radius=10,
+            height=40,
+            width=270,
+            font=("Helvetica", 13),
+            dynamic_resizing=False
+        )
+        self.site_menu.pack(pady=(0, 20), padx=20)
+        self.site_menu.set("Seleccione un Sitio...")
+        self.login_btn = ctk.CTkButton(self.login_frame, text="Login", fg_color=self.primary_color, hover_color="#143E87", width=270, height=40, corner_radius=8, command=self.login)
+        self.login_btn.pack(pady=10)
+
+    def login(self):
+        #email = self.email_entry.get()
+        email = "manuel.contreras@remotics.io"
+        site = self.site_menu.get()
+
+        if email in Mails_Login and site in Sitio_Dict.keys():
+            try:
+                cred = credentials.Certificate(arc_json)
+                firebase_admin.initialize_app(cred, {'databaseURL': 'https://arcbest-e9388-default-rtdb.firebaseio.com/'})
+            except ValueError as e:
+                print(e)
+
+            name = Mails_Login[email]
+            self.ir_a_main(site, name)
+        else:
+            messagebox.showerror("Error", "Email o Site incorrectos. Por favor, inténtalo de nuevo.", parent=self, icon="error")
+
+    def ir_a_main(self, site, name):
+        self.destroy()
+        main_app = App(site, name)
+        main_app.mainloop()
+
 if __name__ == "__main__":
-    app = App()
-    app.title("ArcBest Register")
-    app.login()
+    app = logging()
     app.mainloop()
