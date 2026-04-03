@@ -543,13 +543,12 @@ class logging(ctk.CTk):
 
     def login(self):
         #email = self.email_entry.get()
-        email = "manuel.contreras@remotics.io"
         site = self.site_menu.get()
 
         if email in Mails_Login and site in Sitio_Dict.keys():
             try:
                 cred = credentials.Certificate(arc_json)
-                firebase_admin.initialize_app(cred, {'databaseURL': 'https://arcbest-e9388-default-rtdb.firebaseio.com/'})
+                firebase_admin.initialize_app(cred, {'databaseURL': 'https:yourdomain.firebaseio.com/'})
             except ValueError as e:
                 print(e)
 
